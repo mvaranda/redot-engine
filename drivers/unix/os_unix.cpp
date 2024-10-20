@@ -285,14 +285,35 @@ OS::TimeZoneInfo OS_Unix::get_time_zone_info() const {
 	return ret;
 }
 
+#define CHECK_NANOSLEEP
+#ifdef CHECK_NANOSLEEP
+#include <inttypes.h>
 void OS_Unix::delay_usec(uint32_t p_usec) const {
+	uint64_t p_usec_64 = p_usec;
+	uint64_t rem_usec_64;
 	struct timespec requested = { static_cast<time_t>(p_usec / 1000000), (static_cast<long>(p_usec) % 1000000) * 1000 };
 	struct timespec remaining;
-	while (nanosleep(&requested, &remaining) == -1 && errno == EINTR) {
+	while ((nanosleep(&requested, &remaining) == -1) && (errno == EINTR)) {
+		rem_usec_64 = remaining.tv_nsec / 1000;
+		rem_usec_64 += remaining.tv_sec * 1000000;
+		if (rem_usec_64 > p_usec_64) {
+			ERR_PRINT(vformat("nanosleep return with unexpected remaining value of %" PRIu64 " usec where original request was %" PRIu64, rem_usec_64, p_usec_64));
+			break;
+		}
 		requested.tv_sec = remaining.tv_sec;
 		requested.tv_nsec = remaining.tv_nsec;
 	}
 }
+#else
+void OS_Unix::delay_usec(uint32_t p_usec) const {
+	struct timespec requested = { static_cast<time_t>(p_usec / 1000000), (static_cast<long>(p_usec) % 1000000) * 1000 };
+	struct timespec remaining;
+	while ((nanosleep(&requested, &remaining) == -1) && (errno == EINTR)) {
+		requested.tv_sec = remaining.tv_sec;
+		requested.tv_nsec = remaining.tv_nsec;
+	}
+}
+#endif
 
 uint64_t OS_Unix::get_ticks_usec() const {
 #if defined(__APPLE__)
